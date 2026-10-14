@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 
@@ -90,14 +89,78 @@ function layoutTree(root, isVisible) {
   return { boxes: Object.values(boxes), edges, width: maxX + PAD, height: top.subH + PAD * 2, root: top };
 }
 
-function edgePath(a, b) {
-  const x1 = a.x + a.w;
-  const y1 = a.y + a.h / 2;
-  const x2 = b.x;
-  const y2 = b.y + b.h / 2;
-  const mx = (x1 + x2) / 2;
-  return `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
+// 연결선은 SVG 가 아니라 평범한 View(둥근 꺾임선)로 그린다.
+// 안드로이드의 SVG 는 캔버스 크기만큼 비트맵을 통째로 만들어서, 목차가 수백 개면
+// (가로 수천 px × 세로 수만 px) 메모리가 모자라 앱이 꺼진다. View 는 크기와 상관없이 가볍다.
+function mix(hex, bgHex, a) {
+  const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const c = rgb(hex);
+  const b = rgb(bgHex);
+  const m = c.map((v, i) => Math.round(v * a + b[i] * (1 - a)));
+  return `rgb(${m[0]},${m[1]},${m[2]})`;
 }
+const lineW = (depth) => (depth === 1 ? 2.6 : depth === 2 ? 1.8 : 1.4);
+const lineAlpha = (depth) => (depth === 1 ? 0.8 : 0.5);
+
+const Edges = React.memo(function Edges({ boxes }) {
+  const out = [];
+  boxes.forEach((p) => {
+    if (!p.kids.length) return;
+    const x1 = p.x + p.w;
+    const yP = p.y + p.h / 2;
+    const half = GAP_X / 2;
+    const xm = x1 + half;
+    const first = p.kids[0];
+    const ts = lineW(first.depth);
+    // 루트 줄기는 가지마다 색이 달라서 중립색으로 두고, 갈라진 뒤부터 가지 색을 쓴다.
+    const stubColor =
+      p.depth === 0 ? mix(colors.ink, colors.bg, 0.45) : mix(p.branch, colors.bg, lineAlpha(first.depth));
+    out.push(
+      <View
+        key={`s${p.node.id}`}
+        style={{ position: 'absolute', left: x1, top: yP - ts / 2, width: half + ts / 2, height: ts, backgroundColor: stubColor }}
+      />
+    );
+
+    // 먼 자식부터 그려야 가까운 자식의 줄기 색이 위에 남는다.
+    const kids = [...p.kids].sort(
+      (a, b) => Math.abs(b.y + b.h / 2 - yP) - Math.abs(a.y + a.h / 2 - yP)
+    );
+    kids.forEach((c) => {
+      const t = lineW(c.depth);
+      const color = mix(c.branch, colors.bg, lineAlpha(c.depth));
+      const dy = c.y + c.h / 2 - yP;
+      const left = xm - t / 2;
+      const width = c.x - left;
+
+      if (Math.abs(dy) < 0.5) {
+        out.push(
+          <View
+            key={`e${c.node.id}`}
+            style={{ position: 'absolute', left, top: yP - t / 2, width, height: t, backgroundColor: color }}
+          />
+        );
+        return;
+      }
+
+      const r = Math.max(0, Math.min(12, Math.abs(dy), width - t));
+      const base = { position: 'absolute', left, width, borderLeftWidth: t, borderLeftColor: color };
+      out.push(
+        <View
+          key={`e${c.node.id}`}
+          style={
+            dy > 0
+              ? { ...base, top: yP - t / 2, height: dy + t, borderBottomWidth: t, borderBottomColor: color, borderBottomLeftRadius: r }
+              : { ...base, top: yP + dy - t / 2, height: -dy + t, borderTopWidth: t, borderTopColor: color, borderTopLeftRadius: r }
+          }
+        />
+      );
+    });
+  });
+  return <>{out}</>;
+});
+
+const MIN_SCALE_FLOOR = 0.004;
 
 const clamp = (v, lo, hi) => {
   'worklet';
@@ -142,15 +205,19 @@ export default function MindMap({ root, computed, depthLimit, onNodePress }) {
   const s = useSharedValue(1);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
+  const minS = useSharedValue(0.3);
+  // 워크릿이 큰 layout 객체를 통째로 복사해 가지 않도록 숫자만 뽑아 쓴다.
+  const W = layout.width;
+  const H = layout.height;
 
   // whole=true: 전체가 화면에 들어오게. false: 글씨가 읽히는 크기로, 루트를 화면 세로 가운데에.
   const fit = (animate, whole) => {
     if (!viewport.w) return;
-    const fitAll = Math.min(1, (viewport.w - 8) / layout.width, (viewport.h - 8) / layout.height);
-    const scale = whole ? Math.max(0.3, fitAll) : Math.max(fitAll, Math.min(1, 0.9));
+    const fitAll = Math.max(MIN_SCALE_FLOOR, Math.min(1, (viewport.w - 8) / W, (viewport.h - 8) / H));
+    const scale = whole ? fitAll : Math.max(fitAll, Math.min(1, 0.9));
     const rootCy = layout.root.y + layout.root.h / 2;
-    const contentH = layout.height * scale;
-    const nx = whole ? Math.max(0, (viewport.w - layout.width * scale) / 2) : 0;
+    const contentH = H * scale;
+    const nx = whole ? Math.max(0, (viewport.w - W * scale) / 2) : 0;
     const ny =
       contentH <= viewport.h
         ? (viewport.h - contentH) / 2
@@ -165,6 +232,12 @@ export default function MindMap({ root, computed, depthLimit, onNodePress }) {
     fit(false, false);
   }, [viewport.w, viewport.h, depthLimit]);
 
+  useEffect(() => {
+    if (!viewport.w) return;
+    const fitAll = Math.min(1, (viewport.w - 8) / W, (viewport.h - 8) / H);
+    minS.value = Math.max(MIN_SCALE_FLOOR, Math.min(0.3, fitAll * 0.9));
+  }, [W, H, viewport.w, viewport.h]);
+
   // 이동·확대 모두 "직전 이벤트 대비 변화량"만 더한다. 시작 시점 값을 기준으로 계산하면
   // 손가락 하나를 먼저 뗄 때 이동 제스처가 예전 기준으로 돌아가며 화면이 튄다.
   const pan = Gesture.Pan()
@@ -177,7 +250,7 @@ export default function MindMap({ root, computed, depthLimit, onNodePress }) {
 
   const pinch = Gesture.Pinch().onChange((e) => {
     const prev = s.value;
-    const next = clamp(prev * e.scaleChange, 0.3, 2.4);
+    const next = clamp(prev * e.scaleChange, minS.value, 2.4);
     const r = next / prev;
     // 두 손가락 사이 지점이 화면에서 제자리에 있도록 그 점을 기준으로 확대
     tx.value = e.focalX - (e.focalX - tx.value) * r;
@@ -191,11 +264,11 @@ export default function MindMap({ root, computed, depthLimit, onNodePress }) {
     transform: [
       { translateX: tx.value },
       { translateY: ty.value },
-      { translateX: -layout.width / 2 },
-      { translateY: -layout.height / 2 },
+      { translateX: -W / 2 },
+      { translateY: -H / 2 },
       { scale: s.value },
-      { translateX: layout.width / 2 },
-      { translateY: layout.height / 2 },
+      { translateX: W / 2 },
+      { translateY: H / 2 },
     ],
   }));
 
@@ -206,20 +279,8 @@ export default function MindMap({ root, computed, depthLimit, onNodePress }) {
     >
       <GestureDetector gesture={gesture}>
         <View style={StyleSheet.absoluteFill} collapsable={false}>
-          <Animated.View style={[{ width: layout.width, height: layout.height }, canvasStyle]}>
-            <Svg width={layout.width} height={layout.height} style={StyleSheet.absoluteFill}>
-              {layout.edges.map(({ from, to }) => (
-                <Path
-                  key={to.node.id}
-                  d={edgePath(from, to)}
-                  stroke={to.branch}
-                  strokeOpacity={to.depth === 1 ? 0.75 : 0.45}
-                  strokeWidth={to.depth === 1 ? 2.6 : to.depth === 2 ? 1.8 : 1.3}
-                  fill="none"
-                  strokeLinecap="round"
-                />
-              ))}
-            </Svg>
+          <Animated.View style={[{ width: W, height: H }, canvasStyle]}>
+            <Edges boxes={layout.boxes} />
 
             {layout.boxes.map((b) => (
               <MapNode
