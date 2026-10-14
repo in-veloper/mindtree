@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Pressable } from 'react-native';
 
 import { useStore, recordResults } from '../store';
 import { indexTree } from '../parser';
@@ -206,7 +206,9 @@ export default function LearnSession({ route, nav }) {
   const allRight = verdicts && verdicts.every((v) => v === 'exact' || v === 'near');
 
   return (
-    <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // 안드로이드도 화면이 끝까지(edge-to-edge) 그려져서 키보드가 올라와도 창이 줄지 않는다.
+    // 그래서 키보드 높이만큼 직접 밀어 올려야 가려진 빈칸이 보인다.
+    <KeyboardAvoidingView style={styles.fill} behavior="padding">
       <Header title={title} subtitle={`하위 목차 ${kids.length}개`} onBack={nav.pop} />
       <StageBar stage={stage} />
 
