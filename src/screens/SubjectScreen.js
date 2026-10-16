@@ -109,8 +109,12 @@ export default function SubjectScreen({ route, nav }) {
         subtitle={rootM.studied ? `목차 숙련도 ${rootM.pct}%` : '아직 학습 기록이 없어요'}
         onBack={nav.pop}
         right={
-          <Pressable onPress={() => nav.push('editor', { id: subject.id })} hitSlop={10}>
-            <Icon name="edit" size={20} color={colors.inkSoft} />
+          <Pressable
+            onPress={() => nav.push('editor', { id: subject.id })}
+            hitSlop={8}
+            style={({ pressed }) => [styles.editBtn, pressed && { transform: [{ scale: 0.95 }], opacity: 0.85 }]}
+          >
+            <Icon name="editOutline" size={19} color={colors.ink} />
           </Pressable>
         }
       />
@@ -128,6 +132,17 @@ export default function SubjectScreen({ route, nav }) {
 
 const styles = themedStyles(() => ({
   fill: { flex: 1 },
+  // 맨몸 연필 아이콘 대신 앱의 다른 버튼들처럼 둥근 판 위에 올린 버튼
+  editBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
   tabs: { paddingHorizontal: 16, paddingBottom: 10 },
   toolbar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8, gap: 10 },
   modeSwitch: { flexDirection: 'row', backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 3 },

@@ -2,7 +2,7 @@
   "expo": {
     "name": "마인트리",
     "slug": "mindtree",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "scheme": "mindtree",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.mindtree.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#17784F",
