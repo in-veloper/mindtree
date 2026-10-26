@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 
 import { useStore } from '../store';
 import { computeMastery } from '../mastery';
 import { indexTree, maxDepth } from '../parser';
+import { getTreeView, saveTreeView } from '../treeState';
 import { colors, font, themedStyles } from '../theme';
 import { Header, Segmented, Chip, Icon, Empty } from '../ui';
 import MindMap from '../components/MindMap';
@@ -22,9 +23,16 @@ const TABS = [
 
 function TreeTab({ subject, computed, index, nav }) {
   const deepest = useMemo(() => maxDepth(subject.root), [subject]);
-  const [mode, setMode] = useState('map');
-  const [depth, setDepth] = useState(Math.min(2, deepest));
+  // 다른 탭·화면에 갔다 와도 보던 상태 그대로 — 목차 모양이 바뀌었으면 처음부터
+  const sig = useMemo(() => Object.keys(index).length, [index]);
+  const saved = useMemo(() => getTreeView(subject.id, sig), []);
+  const [mode, setMode] = useState(saved?.mode ?? 'map');
+  const [depth, setDepth] = useState(saved?.depth ?? Math.min(2, deepest));
   const [picked, setPicked] = useState(null);
+
+  useEffect(() => {
+    saveTreeView(subject.id, sig, { mode, depth });
+  }, [subject.id, sig, mode, depth]);
 
   const levels = [];
   for (let d = 1; d <= Math.min(4, deepest); d++) levels.push(d);
@@ -59,9 +67,9 @@ function TreeTab({ subject, computed, index, nav }) {
       {subject.root.children.length === 0 ? (
         <Empty title="목차가 비어 있어요" sub="오른쪽 위 연필을 눌러 목차를 붙여넣어 주세요." />
       ) : mode === 'map' ? (
-        <MindMap root={subject.root} computed={computed} depthLimit={depth} onNodePress={setPicked} />
+        <MindMap viewId={subject.id} sig={sig} root={subject.root} computed={computed} depthLimit={depth} onNodePress={setPicked} />
       ) : (
-        <Outline root={subject.root} computed={computed} depthLimit={depth} onNodePress={setPicked} />
+        <Outline viewId={subject.id} sig={sig} root={subject.root} computed={computed} depthLimit={depth} onNodePress={setPicked} />
       )}
 
       <NodeSheet

@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 
 import { colors, font, BRANCH_COLORS, STATUS, themedStyles } from '../theme';
+import { getTreeView, saveTreeView } from '../treeState';
 
 const GAP_X = 34;
 const GAP_Y = 10;
@@ -167,13 +168,25 @@ const clamp = (v, lo, hi) => {
   return Math.min(hi, Math.max(lo, v));
 };
 
-export default function MindMap({ root, computed, depthLimit, onNodePress }) {
-  const [collapsed, setCollapsed] = useState(() => new Set());
-  const [expanded, setExpanded] = useState(() => new Set());
+export default function MindMap({ viewId, sig, root, computed, depthLimit, onNodePress }) {
+  // 다른 탭·화면에 갔다 오면 이 컴포넌트가 새로 만들어진다 — 그때 직전 상태를 되살린다.
+  const savedRef = useRef(null);
+  if (savedRef.current === null) savedRef.current = getTreeView(viewId, sig) || {};
+  const saved = savedRef.current;
+
+  const [collapsed, setCollapsed] = useState(() => new Set(saved.mapCollapsed || []));
+  const [expanded, setExpanded] = useState(() => new Set(saved.mapExpanded || []));
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
 
-  // 깊이 제한을 바꾸면 손으로 펼치고 접은 것은 초기화한다.
   useEffect(() => {
+    saveTreeView(viewId, sig, { mapCollapsed: [...collapsed], mapExpanded: [...expanded] });
+  }, [viewId, sig, collapsed, expanded]);
+
+  // 깊이 제한을 바꾸면 손으로 펼치고 접은 것은 초기화한다. (처음 뜰 때는 되살린 상태를 지키려고 건너뛴다)
+  const depthSeen = useRef(depthLimit);
+  useEffect(() => {
+    if (depthSeen.current === depthLimit) return;
+    depthSeen.current = depthLimit;
     setCollapsed(new Set());
     setExpanded(new Set());
   }, [depthLimit]);
@@ -228,9 +241,29 @@ export default function MindMap({ root, computed, depthLimit, onNodePress }) {
     go(ty, ny);
   };
 
+  // 처음 화면 크기가 잡힐 때, 저장해 둔 확대·이동 위치가 있으면 그대로 쓰고 없으면 맞춘다.
+  const camRestored = useRef(false);
   useEffect(() => {
+    if (!viewport.w) return;
+    if (!camRestored.current) {
+      camRestored.current = true;
+      if (saved.cam) {
+        s.value = saved.cam.s;
+        tx.value = saved.cam.tx;
+        ty.value = saved.cam.ty;
+        return;
+      }
+    }
     fit(false, false);
   }, [viewport.w, viewport.h, depthLimit]);
+
+  // 화면을 떠날 때 마지막 확대·이동 위치를 남긴다.
+  useEffect(
+    () => () => {
+      saveTreeView(viewId, sig, { cam: { s: s.value, tx: tx.value, ty: ty.value } });
+    },
+    [viewId, sig]
+  );
 
   useEffect(() => {
     if (!viewport.w) return;

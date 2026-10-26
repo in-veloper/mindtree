@@ -1,11 +1,25 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
 
 import { colors, font, BRANCH_COLORS, STATUS, themedStyles } from '../theme';
+import { getTreeView, saveTreeView } from '../treeState';
 import { Icon } from '../ui';
 
-export default function Outline({ root, computed, depthLimit, onNodePress }) {
-  const [open, setOpen] = useState({}); // id → true(펼침)/false(접음), 없으면 깊이 제한을 따른다
+const ROW_H = 44;
+
+export default function Outline({ viewId, sig, root, computed, depthLimit, onNodePress }) {
+  // 다른 탭·화면에 갔다 오면 새로 만들어지므로, 펼침 상태와 스크롤 위치를 되살린다.
+  const savedRef = useRef(null);
+  if (savedRef.current === null) savedRef.current = getTreeView(viewId, sig) || {};
+  const saved = savedRef.current;
+
+  const [open, setOpen] = useState(saved.outlineOpen || {}); // id → true(펼침)/false(접음), 없으면 깊이 제한을 따른다
+  const listRef = useRef(null);
+  const restored = useRef(!(saved.outlineY > 0));
+
+  useEffect(() => {
+    saveTreeView(viewId, sig, { outlineOpen: open });
+  }, [viewId, sig, open]);
 
   const rows = useMemo(() => {
     const out = [];
@@ -25,9 +39,19 @@ export default function Outline({ root, computed, depthLimit, onNodePress }) {
 
   return (
     <FlatList
+      ref={listRef}
       data={rows}
       keyExtractor={(r) => r.node.id}
       contentContainerStyle={styles.list}
+      // 저장해 둔 위치까지 행이 미리 그려져 있어야 정확히 그 자리로 돌아간다
+      initialNumToRender={Math.ceil((saved.outlineY || 0) / ROW_H) + 20}
+      scrollEventThrottle={100}
+      onScroll={(e) => saveTreeView(viewId, sig, { outlineY: e.nativeEvent.contentOffset.y })}
+      onContentSizeChange={() => {
+        if (restored.current) return;
+        restored.current = true;
+        listRef.current?.scrollToOffset({ offset: saved.outlineY, animated: false });
+      }}
       renderItem={({ item }) => {
         const { node, depth, branch, expanded } = item;
         const m = computed[node.id] || { pct: 0, status: 'none' };
